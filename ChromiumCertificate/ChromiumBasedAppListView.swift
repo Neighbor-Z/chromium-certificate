@@ -10,7 +10,7 @@ import SwiftUI
 struct ChromiumBasedAppListView: View {
 	@Binding var isPresented: Bool
 	
-	let chromiumAppsList: [ChromiumApp] = ChromiumDetector.detectChromiumApps()
+	@State private var chromiumAppsList: [ChromiumApp]? = ChromiumDetector.cachedApps
 	
 	var body: some View {
 		VStack(spacing: 0) {
@@ -26,46 +26,59 @@ struct ChromiumBasedAppListView: View {
 			
 			Divider()
 			
-			ScrollView {
-				if chromiumAppsList.isEmpty {
-					Text("LISTVIEW_NO_CHRIMIUM_APPS_FOUND").multilineTextAlignment(.center).padding()
-				}
-				VStack(spacing: 8) {
-					ForEach(Array(chromiumAppsList.enumerated()), id: \.element.id) { index, chromiumApp in
-						HStack {
-							VStack(alignment: .leading) {
-								HStack {
-									if let isTahoeFixed = chromiumApp.isTahoeFixed {
-										Text(isTahoeFixed ? "LISTVIEW_FIXED_INDICATOR" : "LISTVIEW_UNFIX_INDICATOR")
+			if let chromiumAppsList = chromiumAppsList {
+				ScrollView {
+					if chromiumAppsList.isEmpty {
+						Text("LISTVIEW_NO_CHRIMIUM_APPS_FOUND").multilineTextAlignment(.center).padding()
+					}
+					VStack(spacing: 8) {
+						ForEach(Array(chromiumAppsList.enumerated()), id: \.element.id) { index, chromiumApp in
+							HStack {
+								VStack(alignment: .leading) {
+									HStack {
+										if let isTahoeFixed = chromiumApp.isTahoeFixed {
+											Text(isTahoeFixed ? "LISTVIEW_FIXED_INDICATOR" : "LISTVIEW_UNFIX_INDICATOR")
+										}
+										Text(chromiumApp.name).bold()
 									}
-									Text(chromiumApp.name).bold()
-								}
-								if let version = chromiumApp.electronVersion {
-									Text("LISTVIEW_ELECTRON_VERSION_TAG \(version)")
+									if let version = chromiumApp.electronVersion {
+										Text("LISTVIEW_ELECTRON_VERSION_TAG \(version)")
+											.font(.system(.caption, design: .monospaced))
+									}
+									Text(chromiumApp.path)
 										.font(.system(.caption, design: .monospaced))
 								}
-								Text(chromiumApp.path)
-									.font(.system(.caption, design: .monospaced))
+								Spacer()
 							}
-							Spacer()
+							
+							if index < chromiumAppsList.count - 1 {
+								Divider()
+							}
 						}
-						
-						if index < chromiumAppsList.count - 1 {
-							Divider()
-						}
-					}
-				}.padding()
+					}.padding()
 
-				if chromiumAppsList.contains(where: { $0.isTahoeFixed != nil }) {
-					Divider()
-					VStack(alignment: .leading, spacing: 4) {
-						Text("LISTVIEW_PERFORMANCE_ISSUE_TITLE").font(.caption).bold()
-						Text("LISTVIEW_PERFORMANCE_ISSUE_PARAGRAPH_1").font(.caption2)
-						Text("LISTVIEW_PERFORMANCE_ISSUE_PARAGRAPH_2").font(.caption2)
-					}.padding().frame(maxWidth: .infinity, alignment: .leading)
+					if chromiumAppsList.contains(where: { $0.isTahoeFixed != nil }) {
+						Divider()
+						VStack(alignment: .leading, spacing: 4) {
+							Text("LISTVIEW_PERFORMANCE_ISSUE_TITLE").font(.caption).bold()
+							Text("LISTVIEW_PERFORMANCE_ISSUE_PARAGRAPH_1").font(.caption2)
+							Text("LISTVIEW_PERFORMANCE_ISSUE_PARAGRAPH_2").font(.caption2)
+						}.padding().frame(maxWidth: .infinity, alignment: .leading)
+					}
+				}
+			} else {
+				VStack {
+					Spacer()
+					ProgressView()
+					Spacer()
 				}
 			}
 		}.frame(width: 300).frame(minHeight: 0, maxHeight: 300)
+		.onAppear {
+			ChromiumDetector.detectChromiumApps { apps in
+				self.chromiumAppsList = apps
+			}
+		}
 	}
 }
 

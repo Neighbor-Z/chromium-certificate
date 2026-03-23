@@ -25,30 +25,44 @@ enum ChromiumType: String, CaseIterable {
 
 class ChromiumDetector {
     
-    static func detectChromiumApps() -> [ChromiumApp] {
-        var chromiumApps: [ChromiumApp] = []
-        let fileManager = FileManager.default
-        let applicationsURL = URL(fileURLWithPath: "/Applications")
+    static var cachedApps: [ChromiumApp]?
+
+    static func detectChromiumApps(forceReload: Bool = false, completion: @escaping ([ChromiumApp]) -> Void) {
+        if !forceReload, let cached = cachedApps {
+            DispatchQueue.main.async { completion(cached) }
+            return
+        }
+
         
-        do {
-            let appURLs = try fileManager.contentsOfDirectory(
-                at: applicationsURL,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]
-            )
+        DispatchQueue.global(qos: .userInitiated).async {
+            var chromiumApps: [ChromiumApp] = []
+            let fileManager = FileManager.default
+            let applicationsURL = URL(fileURLWithPath: "/Applications")
             
-            for appURL in appURLs {
-                if appURL.pathExtension == "app" {
-                    if let chromiumApp = analyzeApp(at: appURL) {
-                        chromiumApps.append(chromiumApp)
+            do {
+                let appURLs = try fileManager.contentsOfDirectory(
+                    at: applicationsURL,
+                    includingPropertiesForKeys: [.isDirectoryKey],
+                    options: [.skipsHiddenFiles]
+                )
+                
+                for appURL in appURLs {
+                    if appURL.pathExtension == "app" {
+                        if let chromiumApp = analyzeApp(at: appURL) {
+                            chromiumApps.append(chromiumApp)
+                        }
                     }
                 }
+            } catch {
+                print("Error reading applications directory: \(error)")
             }
-        } catch {
-            print("Error reading applications directory: \(error)")
+            
+            let sortedApps = chromiumApps.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            DispatchQueue.main.async {
+                self.cachedApps = sortedApps
+                completion(sortedApps)
+            }
         }
-        
-        return chromiumApps.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
     
     private static func analyzeApp(at appURL: URL) -> ChromiumApp? {
@@ -117,57 +131,28 @@ class ChromiumDetector {
     }
     
     private static func hasElectronIdentifier(infoPlistPath: String) -> Bool {
-        guard FileManager.default.fileExists(atPath: infoPlistPath) else { return false }
-
-        let task = Process()
-        task.launchPath = "/usr/libexec/PlistBuddy"
-        task.arguments = ["-c", "Print CFBundleIdentifier", infoPlistPath]
-        
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.standardError = Pipe()
-        
-        do {
-            try task.run()
-            task.waitUntilExit()
-            
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8) ?? ""
-            
-            return output.localizedCaseInsensitiveContains("electron")
-        } catch {
+        guard FileManager.default.fileExists(atPath: infoPlistPath),
+              let data = try? Data(contentsOf: URL(fileURLWithPath: infoPlistPath)),
+              let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any],
+              let bundleId = plist["CFBundleIdentifier"] as? String else {
             return false
         }
+        return bundleId.localizedCaseInsensitiveContains("electron")
     }
 
     private static func getElectronVersionInfo(at frameworkURL: URL) -> (version: String?, isFixed: Bool?) {
-        let infoPlistPath = frameworkURL.appendingPathComponent("Resources/Info.plist").path
-        guard FileManager.default.fileExists(atPath: infoPlistPath) else { return (nil, nil) }
-
-        let task = Process()
-        task.launchPath = "/usr/bin/plutil"
-        task.arguments = ["-extract", "CFBundleVersion", "raw", infoPlistPath]
-
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.standardError = Pipe()
-
-        do {
-            try task.run()
-            task.waitUntilExit()
-
-            guard task.terminationStatus == 0 else { return (nil, nil) }
-
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let versionString = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
-            if versionString.isEmpty { return (nil, nil) }
-
-            let isFixed = isElectronVersionFixed(versionString)
-            return (versionString, isFixed)
-        } catch {
+        let infoPlistURL = frameworkURL.appendingPathComponent("Resources/Info.plist")
+        guard FileManager.default.fileExists(atPath: infoPlistURL.path),
+              let data = try? Data(contentsOf: infoPlistURL),
+              let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any],
+              let versionString = plist["CFBundleVersion"] as? String else {
             return (nil, nil)
         }
+        
+        let trimmed = versionString.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return (nil, nil) }
+        
+        return (trimmed, isElectronVersionFixed(trimmed))
     }
 
     private static func isElectronVersionFixed(_ versionString: String) -> Bool {
@@ -190,22 +175,4 @@ class ChromiumDetector {
         return false
     }
     
-    static func getChromiumAppCount() -> Int {
-        return detectChromiumApps().count
-    }
-    
-    static func getChromiumAppNames() -> [String] {
-        return detectChromiumApps().map { $0.name }
-    }
-    
-    static func getChromiumAppsByType() -> [ChromiumType: [ChromiumApp]] {
-        let apps = detectChromiumApps()
-        var groupedApps: [ChromiumType: [ChromiumApp]] = [:]
-        
-        for type in ChromiumType.allCases {
-            groupedApps[type] = apps.filter { $0.type == type }
-        }
-        
-        return groupedApps
-    }
 }

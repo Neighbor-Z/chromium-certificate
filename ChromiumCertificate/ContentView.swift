@@ -29,8 +29,7 @@ extension View {
 }
 
 struct ContentView: View {
-	let count = ChromiumDetector.getChromiumAppCount()
-	
+	@State private var count: Int? = nil
 	@State private var presentSheet: Bool = false
 	@Environment(\.locale) private var locale
 	
@@ -38,18 +37,25 @@ struct ContentView: View {
 		ZStack {
 			Image("AnnouncementBg").resizable().frame(width: 640, height: 480).offset(x: 0, y: -12)
 			VStack {
-				Text("MAINVIEW_CHROMIUM_COUNTER \(count)")
-					.multilineTextAlignment(.center)
-					.font(.system(size: 35, weight: .semibold))
-					.foregroundColor(Color("TextColor"))
-					.stroke(color: Color("TextBorderColor"), width: 5)
-					.padding(.horizontal)
+				if let count = count {
+					Text("MAINVIEW_CHROMIUM_COUNTER \(count)")
+						.multilineTextAlignment(.center)
+						.font(.system(size: 35, weight: .semibold))
+						.foregroundColor(Color("TextColor"))
+						.stroke(color: Color("TextBorderColor"), width: 5)
+						.padding(.horizontal)
+				} else {
+					ProgressView()
+						.scaleEffect(1.5)
+						.padding()
+				}
 				
 				Button {
 					self.presentSheet.toggle()
 				} label: {
 					Text("MAINVIEW_SEE_LIST").font(.system(size: 20)).padding(.horizontal).padding(.vertical, 8)
 				}
+				.disabled(count == nil)
 				.buttonStyle(.borderedProminent)
 				.tint(.red)
 				.sheet(isPresented: self.$presentSheet) {
@@ -58,6 +64,11 @@ struct ContentView: View {
 			}
 		}
 		.frame(width: 640, height: 440)
+		.onAppear {
+			ChromiumDetector.detectChromiumApps { apps in
+				self.count = apps.count
+			}
+		}
 	}
 }
 
